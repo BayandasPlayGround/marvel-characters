@@ -14,9 +14,9 @@
 
 # COMMAND ----------
 
-from pathlib import Path
-import sys
-sys.path.append(str(Path.cwd().parent / 'src'))
+# from pathlib import Path
+# import sys
+# sys.path.append(str(Path.cwd().parent / 'src'))
 
 # COMMAND ----------
 
@@ -76,3 +76,4 @@ data_processor.save_to_catalog(X_train, X_test)
 # Enable change data feed (only once!)
 logger.info("Enable change data feed")
 data_processor.enable_change_data_feed()
+# COMMAND ----------
