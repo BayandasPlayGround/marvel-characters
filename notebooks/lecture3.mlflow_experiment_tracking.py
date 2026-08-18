@@ -24,7 +24,7 @@ if not is_databricks():
 mlflow.get_tracking_uri()
 # COMMAND ----------
 experiment = mlflow.set_experiment(experiment_name="/Shared/marvel-demo")
-mlflow.set_experiment_tags({"repository_name": "marvelousmlops/marvel-characters"})
+mlflow.set_experiment_tags({"repository_name": "BayandasPlayGround/marvel-characters"})
 
 print(experiment)
 # COMMAND ----------
@@ -39,7 +39,7 @@ mlflow.get_experiment(experiment.experiment_id)
 # COMMAND ----------
 # search for experiment
 experiments = mlflow.search_experiments(
-    filter_string="tags.repository_name='marvelousmlops/marvel-characters'"
+    filter_string="tags.repository_name='BayandasPlayGround/marvel-characters'"
 )
 print(experiments)
 
