@@ -38,7 +38,6 @@ class MarvelModelWrapper(mlflow.pyfunc.PythonModel):
         input_example: pd.DataFrame,
     ) -> None:
         """Log and register the model.
-
         :param wrapped_model_uri: URI of the wrapped model
         :param pyfunc_model_name: Name of the PyFunc model
         :param experiment_name: Name of the experiment
