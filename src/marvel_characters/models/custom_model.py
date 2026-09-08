@@ -1,4 +1,7 @@
+import os
 from datetime import datetime
+from pathlib import Path
+from urllib.parse import urlparse
 
 import mlflow
 import numpy as np
@@ -21,7 +24,22 @@ class MarvelModelWrapper(mlflow.pyfunc.PythonModel):
 
     def load_context(self, context: PythonModelContext) -> None:
         """Load the LightGBM model."""
-        self.model = mlflow.sklearn.load_model(context.artifacts["lightgbm-pipeline"])
+        # MLflow 3.1.1 can persist Windows separators in artifact metadata.
+        # On Linux, /model/artifacts\\. must resolve to /model/artifacts;
+        # the artifact key does not imply a subdirectory with the same name.
+        artifact_path = context.artifacts["lightgbm-pipeline"]
+        # During logging MLflow also calls load_context before downloading
+        # artifacts. Preserve remote URIs; a one-letter scheme is a drive.
+        if len(urlparse(artifact_path).scheme) > 1:
+            self.model = mlflow.sklearn.load_model(artifact_path)
+            return
+        model_path = os.path.normpath(artifact_path.replace("\\", "/"))
+        if not (Path(model_path) / "MLmodel").is_file():
+            raise FileNotFoundError(
+                f"LightGBM pipeline MLmodel file not found at {model_path!r} "
+                f"(artifact path: {artifact_path!r}). Re-log the wrapper with the complete pipeline artifact."
+            )
+        self.model = mlflow.sklearn.load_model(model_path)
 
     def predict(self, context: PythonModelContext, model_input: pd.DataFrame | np.ndarray) -> dict:
         """Predict the survival of a character."""
@@ -36,7 +54,7 @@ class MarvelModelWrapper(mlflow.pyfunc.PythonModel):
         tags: Tags,
         code_paths: list[str],
         input_example: pd.DataFrame,
-    ) -> None:
+    ) -> str:
         """Log and register the model.
         :param wrapped_model_uri: URI of the wrapped model
         :param pyfunc_model_name: Name of the PyFunc model
@@ -49,7 +67,7 @@ class MarvelModelWrapper(mlflow.pyfunc.PythonModel):
         with mlflow.start_run(run_name=f"wrapper-lightgbm-{datetime.now().strftime('%Y-%m-%d')}", tags=tags.to_dict()):
             additional_pip_deps = []
             for package in code_paths:
-                whl_name = package.split("/")[-1]
+                whl_name = package.replace("\\", "/").rsplit("/", 1)[-1]
                 additional_pip_deps.append(f"code/{whl_name}")
             conda_env = _mlflow_conda_env(additional_pip_deps=additional_pip_deps)
 

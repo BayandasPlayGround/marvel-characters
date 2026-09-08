@@ -128,6 +128,8 @@ Each model receives its own `latest-model` alias. Basic and custom model version
 
 Inspect the actual endpoint response when implementing clients and log parsers because serving adds its own JSON envelope.
 
+The verified HTTP response for this wrapper has the form `{"predictions": {"Survival prediction": ["alive"]}}`. Some typed CLI/SDK query clients expect an array under `predictions` and may report a decoding error despite HTTP 200. In that case, use an HTTP client or `databricks api post /serving-endpoints/<endpoint-name>/invocations --json '@request.json' --profile <profile>` to read the response without that typed decoder.
+
 The wrapper includes the project wheel through `code_paths` and declares it as a model environment dependency. The training script constructs its path under `<root_path>/artifacts/.internal/` using the installed package version. That assumption must match the artifact location produced by deployment.
 
 **Serving does not execute `DataProcessor.preprocess()`.** Clients must send the ten already engineered features, following the logged model signature. An example request body is:
@@ -186,7 +188,7 @@ uv run --extra dev --extra test pre-commit run --all-files
 uv build
 ```
 
-The wheel is built into `dist/`, with its version read from `version.txt` (currently `0.1.0`). Including both extras supplies Spark imports and pytest; the `test` extra alone does not declare a Spark provider. Pre-commit can modify formatting and currently excludes `scripts/` and `notebooks/`.
+The wheel is built into `dist/`, with its version read from `version.txt` (currently `0.1.1`). Including both extras supplies Spark imports and pytest; the `test` extra alone does not declare a Spark provider. Pre-commit can modify formatting and currently excludes `scripts/` and `notebooks/`.
 
 The job scripts are not standalone local programs: they expect deployed workspace paths, Spark access, and, for training/deployment, `dbutils.jobs.taskValues`. For remote development, configure authenticated compute and check the [Databricks Connect compatibility requirements](https://docs.databricks.com/aws/en/dev-tools/databricks-connect/requirements) against the pinned Python/Connect versions.
 
@@ -249,6 +251,16 @@ databricks bundle run -t dev --profile marvel-dev marvel-characters-monitor-upda
 ```
 
 Both jobs specify Monday at 06:00 in `Europe/Amsterdam`. **All targets set schedules to `PAUSED`, including production.** The jobs have no dependency on each other; identical schedule times do not guarantee monitoring data is ready.
+
+### Recovering a wrapper logged on Windows
+
+MLflow `3.1.1` can store a Windows separator in a Python model's artifact metadata, such as `artifacts\.`. In a Linux serving container this can become `/model/artifacts\.` and fail during `load_context()`. The artifact key `lightgbm-pipeline` does not necessarily imply a directory with that name: the correct directory may simply be `/model/artifacts`.
+
+Package `0.1.1` normalises these separators and verifies that the resolved directory contains `MLmodel` before loading the pipeline. It also handles Windows wheel paths when creating model environment dependencies. Existing registered versions retain their original packaged code; changing the source file does not repair them in place.
+
+To recover, build/install the updated wheel, restart the notebook Python session to remove the old imported wrapper, and re-run the custom-model notebook with the new wheel in `code_paths`. Reuse the existing trained basic model; retraining is unnecessary for this packaging fix. Register a new custom version, deploy that explicit version, wait for readiness, and smoke-test it. Do not rely on the training workflow's quality gate to perform a packaging-only repair.
+
+The regression tests cover Linux-style resolution of Windows artifact metadata, missing model files, and real MLflow save/load plus batch prediction. They can also run without pytest using `python -m unittest tests.marvel_characters.test_custom_model -v` in an environment containing the project dependencies.
 
 ### Notebook guide
 
