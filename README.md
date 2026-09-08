@@ -14,6 +14,7 @@ Reusable code lives in `src/marvel_characters`. Small scripts connect those modu
 | [data_processor.py](src/marvel_characters/data_processor.py) | Cleaning, feature engineering, splitting, catalog writes, and synthetic-data helpers. |
 | [models/basic_model.py](src/marvel_characters/models/basic_model.py) | Feature encoding, LightGBM training, evaluation, candidate comparison, and registration. |
 | [models/custom_model.py](src/marvel_characters/models/custom_model.py) | MLflow Python model wrapping the basic pipeline to return readable labels. |
+| [models/ab_model.py](src/marvel_characters/models/ab_model.py) | A/B wrapper, separate artifact staging, and wheel-backed MLflow logging. |
 | [serving/model_serving.py](src/marvel_characters/serving/model_serving.py) | Creates or updates a serving endpoint for a registered model version. |
 | [monitoring.py](src/marvel_characters/monitoring.py) | Parses inference payloads, writes a monitoring table, and creates or refreshes a quality monitor. |
 | [utils.py](src/marvel_characters/utils.py) | Detects a Databricks runtime and retrieves the authenticated workspace host. |
@@ -188,7 +189,7 @@ uv run --extra dev --extra test pre-commit run --all-files
 uv build
 ```
 
-The wheel is built into `dist/`, with its version read from `version.txt` (currently `0.1.1`). Including both extras supplies Spark imports and pytest; the `test` extra alone does not declare a Spark provider. Pre-commit can modify formatting and currently excludes `scripts/` and `notebooks/`.
+The wheel is built into `dist/`, with its version read from `version.txt` (currently `0.1.2`). Including both extras supplies Spark imports and pytest; the `test` extra alone does not declare a Spark provider. Pre-commit can modify formatting and currently excludes `scripts/` and `notebooks/`.
 
 The job scripts are not standalone local programs: they expect deployed workspace paths, Spark access, and, for training/deployment, `dbutils.jobs.taskValues`. For remote development, configure authenticated compute and check the [Databricks Connect compatibility requirements](https://docs.databricks.com/aws/en/dev-tools/databricks-connect/requirements) against the pinned Python/Connect versions.
 
@@ -261,6 +262,16 @@ Package `0.1.1` normalises these separators and verifies that the resolved direc
 To recover, build/install the updated wheel, restart the notebook Python session to remove the old imported wrapper, and re-run the custom-model notebook with the new wheel in `code_paths`. Reuse the existing trained basic model; retraining is unnecessary for this packaging fix. Register a new custom version, deploy that explicit version, wait for readiness, and smoke-test it. Do not rely on the training workflow's quality gate to perform a packaging-only repair.
 
 The regression tests cover Linux-style resolution of Windows artifact metadata, missing model files, and real MLflow save/load plus batch prediction. They can also run without pytest using `python -m unittest tests.marvel_characters.test_custom_model -v` in an environment containing the project dependencies.
+
+### Portable A/B model packaging
+
+Starting with package `0.1.2`, the A/B notebook imports `log_ab_model()` from `models/ab_model.py` instead of defining an independent wrapper in a notebook cell. `MarvelABModelWrapper` shares the custom model's portable artifact loader, preserving the same odd/even MD5 routing and single-record response shape (`Prediction` and `model`). The existing first-row routing/first-prediction batch limitation still applies.
+
+`stage_ab_artifacts()` downloads each classifier into a separate temporary directory and stages it as `model_A` or `model_B` before logging. This prevents two downloads named `artifacts` (or returned at the download root) from sharing the same packaged path. The failed original A/B artifact referenced `artifacts\.` for both model keys; replacing separators alone would not ensure two distinct pipelines.
+
+The notebook uses numbered source-model versions, logs the source URIs as metadata, includes the current project wheel in the serving dependencies, and registers the URI returned by MLflow. Re-running deployment updates the existing A/B endpoint. Requests use SDK authentication headers on each call and stop on HTTP errors.
+
+To repair a previously logged A/B model without retraining, reuse the original numbered basic-model versions, build/install the latest wheel, and call `log_ab_model()` in an MLflow run with those URIs, a prepared single-row input containing `Id`, and the wheel path. Register the returned `model_uri` and update the endpoint to that new version. Verify both an odd-hash ID and an even-hash ID. Run both regression suites with `python -m unittest tests.marvel_characters.test_custom_model tests.marvel_characters.test_ab_model -v`.
 
 ### Notebook guide
 

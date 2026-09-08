@@ -10,6 +10,7 @@ from mlflow import MlflowClient
 from mlflow.models import infer_signature
 from mlflow.pyfunc import PythonModelContext
 from mlflow.utils.environment import _mlflow_conda_env
+from sklearn.pipeline import Pipeline
 
 from marvel_characters.config import Tags
 
@@ -19,27 +20,28 @@ def adjust_predictions(predictions: np.ndarray | list[int]) -> dict[str, list[st
     return {"Survival prediction": ["alive" if pred == 1 else "dead" for pred in predictions]}
 
 
+def load_sklearn_artifact(artifact_path: str) -> Pipeline:
+    """Load a pipeline from a URI or cross-platform MLflow artifact path."""
+    # MLflow also calls load_context with URIs before downloading artifacts.
+    # Preserve URI schemes; a one-letter scheme is a Windows drive.
+    if len(urlparse(artifact_path).scheme) > 1:
+        return mlflow.sklearn.load_model(artifact_path)
+    # MLflow 3.1.1 can persist artifacts\\. when logging on Windows.
+    model_path = os.path.normpath(artifact_path.replace("\\", "/"))
+    if not (Path(model_path) / "MLmodel").is_file():
+        raise FileNotFoundError(
+            f"LightGBM pipeline MLmodel file not found at {model_path!r} "
+            f"(artifact path: {artifact_path!r}). Re-log the wrapper with the complete pipeline artifact."
+        )
+    return mlflow.sklearn.load_model(model_path)
+
+
 class MarvelModelWrapper(mlflow.pyfunc.PythonModel):
     """Wrapper for LightGBM model."""
 
     def load_context(self, context: PythonModelContext) -> None:
         """Load the LightGBM model."""
-        # MLflow 3.1.1 can persist Windows separators in artifact metadata.
-        # On Linux, /model/artifacts\\. must resolve to /model/artifacts;
-        # the artifact key does not imply a subdirectory with the same name.
-        artifact_path = context.artifacts["lightgbm-pipeline"]
-        # During logging MLflow also calls load_context before downloading
-        # artifacts. Preserve remote URIs; a one-letter scheme is a drive.
-        if len(urlparse(artifact_path).scheme) > 1:
-            self.model = mlflow.sklearn.load_model(artifact_path)
-            return
-        model_path = os.path.normpath(artifact_path.replace("\\", "/"))
-        if not (Path(model_path) / "MLmodel").is_file():
-            raise FileNotFoundError(
-                f"LightGBM pipeline MLmodel file not found at {model_path!r} "
-                f"(artifact path: {artifact_path!r}). Re-log the wrapper with the complete pipeline artifact."
-            )
-        self.model = mlflow.sklearn.load_model(model_path)
+        self.model = load_sklearn_artifact(context.artifacts["lightgbm-pipeline"])
 
     def predict(self, context: PythonModelContext, model_input: pd.DataFrame | np.ndarray) -> dict:
         """Predict the survival of a character."""
