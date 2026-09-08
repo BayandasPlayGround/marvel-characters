@@ -122,5 +122,5 @@ for i in range(len(dataframe_records)):
     status_code, response_text = call_endpoint(dataframe_records[i])
     print(f"Response Status: {status_code}")
     print(f"Response Text: {response_text}")
-    time.sleep(0.2) 
+    #time.sleep(0.001) 
 # COMMAND ----------
