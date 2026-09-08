@@ -23,16 +23,15 @@ from marvel_characters.utils import is_databricks
 # spark session
 spark = SparkSession.builder.getOrCreate()
 
-w = WorkspaceClient()
-
-os.environ["DBR_HOST"] = w.config.host
-os.environ["DBR_TOKEN"] = w.tokens.create(lifetime_seconds=1200).token_value
-
 if not is_databricks():
     load_dotenv()
     profile = os.environ["PROFILE"]
+    os.environ["DATABRICKS_CONFIG_PROFILE"] = profile
+    w = WorkspaceClient(profile=profile)
     mlflow.set_tracking_uri(f"databricks://{profile}")
     mlflow.set_registry_uri(f"databricks-uc://{profile}")
+else:
+    w = WorkspaceClient()
 
 # Load project config
 config = ProjectConfig.from_yaml(config_path="../project_config_marvel.yml", env="dev")
@@ -68,7 +67,7 @@ required_columns = [
 # Sample 1000 records from the training set
 test_set = spark.table(f"{config.catalog_name}.{config.schema_name}.test_set").toPandas()
 
-# Sample records from the training set
+# 18,000 single-record requests take at least an hour with the loop's pauses.
 sampled_records = test_set[required_columns].sample(n=18000, replace=True)
 
 # Replace NaN values with None (which will be serialized as null in JSON)
@@ -98,14 +97,18 @@ def call_endpoint(record):
     """
     Calls the model serving endpoint with a given input record.
     """
-    serving_endpoint = f"{os.environ['DBR_HOST']}/serving-endpoints/marvel-character-model-serving/invocations"    
+    serving_endpoint = f"{w.config.host.rstrip('/')}/serving-endpoints/marvel-character-model-serving/invocations"
     print(f"Calling endpoint: {serving_endpoint}")
     
     response = requests.post(
         serving_endpoint,
-        headers={"Authorization": f"Bearer {os.environ['DBR_TOKEN']}"},
+        # Ask the credential provider each time so OAuth credentials can refresh.
+        # A manually supplied PAT still needs replacement when it expires.
+        headers=w.config.authenticate(),
         json={"dataframe_records": record},
+        timeout=120,
     )
+    response.raise_for_status()
     return response.status_code, response.text
 
 
