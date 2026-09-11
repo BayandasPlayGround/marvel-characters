@@ -44,6 +44,13 @@ include = ["house_price*", "marvel_characters*"]
 [tool.setuptools.dynamic]
 version = { file = "version.txt" }
 
+[tool.uv]
+# This project lives under a OneDrive-synced folder. uv's default symlink/hardlink
+# linking creates NTFS reparse points in .venv that OneDrive's sync engine corrupts
+# or locks (observed as "Access is denied" on uv sync/build and packages that fail
+# to import with no RECORD file found). Copying real files avoids that entirely.
+link-mode = "copy"
+
 [tool.pytest.ini_options]
 testpaths = [ "tests" ]
 pythonpath = [ "." ]

@@ -1,20 +1,23 @@
 # Databricks notebook source
-# MAGIC %sh
-# MAGIC cd .. && pip install -q uv && uv build
-
-# COMMAND ----------
-
+import os
+import subprocess
 from pathlib import Path
 
-wheel_file = f"../dist/marvel_characters-{Path('../version.txt').read_text().strip()}-py3-none-any.whl"
+if "DATABRICKS_RUNTIME_VERSION" in os.environ:
+    # Fresh Databricks cluster: the project isn't installed yet, so build and pip
+    # install the wheel, then restart Python to pick it up. Locally (Databricks
+    # Connect via VS Code / an Interactive window) this whole block is skipped:
+    # `uv sync` already installs marvel_characters in editable mode into .venv, so
+    # re-running %pip install here would just fight that install for no benefit,
+    # and %restart_python isn't even a recognised magic outside a real cluster.
+    subprocess.run(["pip", "install", "-q", "uv"], cwd="..", check=True)
+    subprocess.run(["uv", "build"], cwd="..", check=True)
+    project_version = Path("../version.txt").read_text().strip()
+    wheel_file = f"../dist/marvel_characters-{project_version}-py3-none-any.whl"
+    from IPython import get_ipython
 
-# COMMAND ----------
-
-# MAGIC %pip install {wheel_file}
-
-# COMMAND ----------
-
-# MAGIC %restart_python
+    get_ipython().run_line_magic("pip", f"install {wheel_file}")
+    get_ipython().run_line_magic("restart_python", "")
 
 # COMMAND ----------
 
