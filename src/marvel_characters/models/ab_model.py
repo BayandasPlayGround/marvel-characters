@@ -2,6 +2,7 @@
 
 import hashlib
 import shutil
+import zipfile
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -15,6 +16,8 @@ from mlflow.pyfunc import PythonModelContext
 from mlflow.utils.environment import _mlflow_conda_env
 
 from marvel_characters.models.custom_model import load_sklearn_artifact
+
+AB_MODEL_MODULE_ENTRY = "marvel_characters/models/ab_model.py"
 
 
 class MarvelABModelWrapper(mlflow.pyfunc.PythonModel):
@@ -52,6 +55,38 @@ def stage_ab_artifacts(model_a_uri: str, model_b_uri: str) -> Iterator[dict[str,
         yield artifacts
 
 
+def _require_module_in_wheel(wheel: Path, module_entry: str) -> None:
+    """Fail fast if the wheel about to be packaged does not contain ``module_entry``.
+
+    A stale wheel that predates a source change (such as one built before ``ab_model.py``
+    existed) installs without error in the serving container's pip step, then fails only
+    when MLflow tries to import the missing module while loading the model. Checking the
+    wheel's contents here turns that into an immediate, actionable error at logging time.
+    """
+    with zipfile.ZipFile(wheel) as archive:
+        if module_entry not in archive.namelist():
+            raise ModuleNotFoundError(
+                f"{wheel} does not contain {module_entry}. Rebuild the project wheel with "
+                "`uv build` so it matches the current source before logging the A/B model."
+            )
+
+
+def resolve_ab_wheel_path(dist_dir: str | Path, version_file: str | Path) -> Path:
+    """Resolve the project wheel from the version committed to ``version.txt``.
+
+    Building the filename from ``version.txt`` (the package's actual build-time version
+    source, per ``pyproject.toml``) instead of the version metadata of whatever happens to
+    be installed in the current kernel avoids silently resolving a stale wheel left over in
+    ``dist_dir`` from an earlier package version.
+    """
+    project_version = Path(version_file).read_text(encoding="utf-8").strip()
+    wheel = Path(dist_dir) / f"marvel_characters-{project_version}-py3-none-any.whl"
+    if not wheel.is_file():
+        raise FileNotFoundError(f"Build the project wheel before logging the A/B model: {wheel}")
+    _require_module_in_wheel(wheel, AB_MODEL_MODULE_ENTRY)
+    return wheel
+
+
 def log_ab_model(
     model_a_uri: str,
     model_b_uri: str,
@@ -63,6 +98,7 @@ def log_ab_model(
     wheel = Path(wheel_path)
     if not wheel.is_file():
         raise FileNotFoundError(f"Build the project wheel before logging the A/B model: {wheel}")
+    _require_module_in_wheel(wheel, AB_MODEL_MODULE_ENTRY)
     signature = signature or infer_signature(input_example, {"Prediction": 1, "model": "Model B"})
     with stage_ab_artifacts(model_a_uri, model_b_uri) as artifacts:
         return mlflow.pyfunc.log_model(

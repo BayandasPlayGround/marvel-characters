@@ -9,7 +9,6 @@
 
 import os
 import time
-from importlib.metadata import version
 from pathlib import Path
 
 import mlflow
@@ -21,7 +20,7 @@ from pyspark.sql import SparkSession
 
 from marvel_characters.config import ProjectConfig, Tags
 from marvel_characters.models.basic_model import BasicModel
-from marvel_characters.models.ab_model import log_ab_model
+from marvel_characters.models.ab_model import log_ab_model, resolve_ab_wheel_path
 from marvel_characters.serving.model_serving import ModelServing
 from marvel_characters.utils import is_databricks
 
@@ -85,7 +84,7 @@ X_test = test_set[config.num_features + config.cat_features + ["Id"]]
 # COMMAND ----------
 mlflow.set_experiment(experiment_name="/Shared/marvel-characters-ab-testing")
 model_name = f"{catalog_name}.{schema_name}.marvel_character_model_pyfunc_ab_test"
-wheel_path = Path("../dist") / f"marvel_characters-{version('marvel-characters')}-py3-none-any.whl"
+wheel_path = resolve_ab_wheel_path(dist_dir="../dist", version_file="../version.txt")
 
 with mlflow.start_run() as run:
     run_id = run.info.run_id
@@ -111,6 +110,8 @@ endpoint_name = "marvel-characters-ab-testing"
 entity_version = model_version.version
 
 # This also updates an existing failed endpoint when re-running the notebook.
+# wait=True (the default) blocks until the endpoint is READY and raises if the
+# served version fails to come up, instead of returning immediately.
 ModelServing(model_name=model_name, endpoint_name=endpoint_name).deploy_or_update_serving_endpoint(version=entity_version)
 
 # COMMAND ----------
