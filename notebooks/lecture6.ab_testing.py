@@ -1,5 +1,16 @@
 # Databricks notebook source
-# MAGIC %pip install ../dist/marvel_characters-0.1.2-py3-none-any.whl
+# MAGIC %sh
+# MAGIC cd .. && pip install -q uv && uv build
+
+# COMMAND ----------
+
+from pathlib import Path
+
+wheel_file = f"../dist/marvel_characters-{Path('../version.txt').read_text().strip()}-py3-none-any.whl"
+
+# COMMAND ----------
+
+# MAGIC %pip install {wheel_file}
 
 # COMMAND ----------
 
