@@ -107,7 +107,7 @@ class TestDataProcessor:
         assert len(test_set) > 0
 
     def test_save_to_catalog(self, sample_data: pd.DataFrame, mock_config: MagicMock, mock_spark: MagicMock) -> None:
-        """Test the save_to_catalog method."""
+        """Verify both regenerated tables replace stale schemas and retain timestamps."""
         # Create a processor instance
         processor = DataProcessor(sample_data, mock_config, mock_spark)
         processor.preprocess()
@@ -115,13 +115,25 @@ class TestDataProcessor:
         # Get train and test sets
         train_set, test_set = processor.split_data()
 
-        # Mock the save_to_catalog method to avoid PySpark context issues
-        with patch.object(DataProcessor, "save_to_catalog") as mock_save:
-            # Call the method
+        frames = [MagicMock(), MagicMock()]
+        mock_spark.createDataFrame.side_effect = frames
+        with (
+            patch("marvel_characters.data_processor.current_timestamp"),
+            patch("marvel_characters.data_processor.to_utc_timestamp") as timestamp,
+        ):
             processor.save_to_catalog(train_set, test_set)
 
-            # Verify it was called with the right arguments
-            mock_save.assert_called_once_with(train_set, test_set)
+        assert mock_spark.createDataFrame.call_count == 2
+        for call, expected in zip(mock_spark.createDataFrame.call_args_list, [train_set, test_set], strict=True):
+            pd.testing.assert_frame_equal(call.args[0], expected)
+        for frame, table in zip(frames, ["train_set", "test_set"], strict=True):
+            frame.withColumn.assert_called_once_with("update_timestamp_utc", timestamp.return_value)
+            writer = frame.withColumn.return_value.write
+            writer.mode.assert_called_once_with("overwrite")
+            writer.mode.return_value.option.assert_called_once_with("overwriteSchema", "true")
+            writer.mode.return_value.option.return_value.saveAsTable.assert_called_once_with(
+                f"test_catalog.test_schema.{table}"
+            )
 
     @patch("pyspark.sql.SparkSession.sql")
     def test_enable_change_data_feed(

@@ -111,7 +111,11 @@ class DataProcessor:
         return train_set, test_set
 
     def save_to_catalog(self, train_set: pd.DataFrame, test_set: pd.DataFrame) -> None:
-        """Save the train and test sets into Databricks tables.
+        """Replace the train and test tables, including their schemas.
+
+        These tables are fully regenerated for training. Pandas-to-Spark type
+        inference can differ from an existing table (for example int vs bigint),
+        so overwriting rows alone is insufficient.
 
         :param train_set: The training DataFrame to be saved.
         :param test_set: The test DataFrame to be saved.
@@ -124,11 +128,11 @@ class DataProcessor:
             "update_timestamp_utc", to_utc_timestamp(current_timestamp(), "UTC")
         )
 
-        train_set_with_timestamp.write.mode("overwrite").saveAsTable(
+        train_set_with_timestamp.write.mode("overwrite").option("overwriteSchema", "true").saveAsTable(
             f"{self.config.catalog_name}.{self.config.schema_name}.train_set"
         )
 
-        test_set_with_timestamp.write.mode("overwrite").saveAsTable(
+        test_set_with_timestamp.write.mode("overwrite").option("overwriteSchema", "true").saveAsTable(
             f"{self.config.catalog_name}.{self.config.schema_name}.test_set"
         )
 

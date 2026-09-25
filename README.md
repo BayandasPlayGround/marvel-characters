@@ -74,7 +74,9 @@ The source is [marvel_characters_dataset.csv](data/marvel_characters_dataset.csv
 
 1. `preprocess()` to construct model inputs, updating the processor's DataFrame.
 2. `split_data()` for an 80/20 random split with seed `42`, without stratification.
-3. `save_to_catalog()` to convert the splits to Spark DataFrames, add `update_timestamp_utc`, and **overwrite** `train_set` and `test_set` in the selected catalog/schema.
+3. `save_to_catalog()` to convert the splits to Spark DataFrames, add `update_timestamp_utc`, and **overwrite the data and schema** of `train_set` and `test_set` in the selected catalog/schema.
+
+Both writes use `overwriteSchema=true` because these are fully regenerated training datasets. Without it, an existing `INT` column such as `Teams` can conflict with the `BIGINT` inferred from the new pandas data and raise `DELTA_FAILED_TO_MERGE_FIELDS` (nested cause: `IntegerType` versus `LongType`). `Alive` can have the same mismatch. Row overwrite alone does not replace the Delta schema. After changing this packaged code, redeploy the bundle to rebuild/install the wheel before repairing the failed run; repair failed tasks and their dependent tasks. Editing a workspace source file alone does not update the installed wheel.
 
 | Column(s) | Transformation |
 | --- | --- |
